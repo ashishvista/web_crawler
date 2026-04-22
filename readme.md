@@ -2,6 +2,13 @@
 
 A TypeScript + Playwright scraper built on **Crawlee** that extracts product data (title, price, description, reviews) from **Amazon** and **Walmart** and writes results to a CSV file.
 
+## Quick Start
+
+```bash
+npm install
+npm run dev
+```
+
 ## Setup
 
 ```bash
