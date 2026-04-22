@@ -1,8 +1,10 @@
 {
   "skus": [
+     { "Type": "Amazon", "SKU": "B00FLYWNYQ" },
+     { "Type": "Walmart", "SKU": "15001761367" },
     { "Type": "Walmart", "SKU": "5326288985" },
-    { "Type": "Amazon", "SKU": "B01LR5S6HK" },
-    { "Type": "Walmart", "SKU": "17767352360" }
+    { "Type": "Amazon", "SKU": "B01LR5S6HK" }
+    
   ]
 }
 

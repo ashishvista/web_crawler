@@ -158,9 +158,16 @@ async function main(): Promise<void> {
       },
     },
 
-    // Session pool keeps cookies between retries so solved challenges persist
+    // Session pool keeps cookies between retries so solved challenges persist.
+    // maxErrorScore raised so a manually-solved session isn't retired by Crawlee
+    // just because it hit the challenge page once before the user could solve it.
     useSessionPool: true,
     persistCookiesPerSession: true,
+    sessionPoolOptions: {
+      sessionOptions: {
+        maxErrorScore: 10,
+      },
+    },
 
     launchContext: {
       launchOptions: {
