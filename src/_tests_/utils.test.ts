@@ -1,5 +1,12 @@
 import * as fs from 'fs';
-import { sleep, logError, writeToCSV, runConcurrent, retry } from '../utils';
+import { sleep, logError, writeToCSV, runConcurrent, retry, ProductData } from '../utils';
+
+jest.mock('fs');
+jest.mock('csv-writer', () => ({
+  createObjectCsvWriter: jest.fn(() => ({
+    writeRecords: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
 
 // ─── sleep ───────────────────────────────────────────────────────────────────
 
@@ -9,6 +16,49 @@ describe('sleep', () => {
     await sleep(100);
     expect(Date.now() - start).toBeGreaterThanOrEqual(90);
   });
+});
+
+// ─── logError ────────────────────────────────────────────────────────────────
+
+describe('logError', () => {
+  it('writes a formatted line to the error log', () => {
+    (fs.appendFileSync as jest.Mock).mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    logError('SKU123', 'Amazon', 'timeout');
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(1);
+    const written = (fs.appendFileSync as jest.Mock).mock.calls[0][1] as string;
+    expect(written).toContain('SKU123');
+    expect(written).toContain('Amazon');
+    expect(written).toContain('timeout');
+    expect(written).toMatch(/^\[\d{4}-\d{2}-\d{2}T/);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+});
+
+// ─── writeToCSV ──────────────────────────────────────────────────────────────
+
+const sampleRecord: ProductData = {
+  sku: 'B0001',
+  source: 'Amazon',
+  title: 'Test Product',
+  price: '$9.99',
+  description: 'A test item',
+  reviewsAndRating: '4.5 out of 5 | 100 ratings',
+};
+
+describe('writeToCSV', () => {
+  it('creates new file when it does not exist', async () => {
+    (fs.existsSync as jest.Mock).mockReturnValue(false);
+    await expect(writeToCSV([sampleRecord])).resolves.not.toThrow();
+  });
+
+  it('appends when file already exists', async () => {
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+    await expect(writeToCSV([sampleRecord])).resolves.not.toThrow();
+  });
+
+  afterEach(() => jest.clearAllMocks());
 });
 
 // ─── retry ───────────────────────────────────────────────────────────────────
@@ -73,19 +123,9 @@ describe('runConcurrent', () => {
     await runConcurrent(tasks, 2);
     expect(maxRunning).toBeLessThanOrEqual(2);
   });
-});
 
-// ─── logError ────────────────────────────────────────────────────────────────
-
-describe('logError', () => {
-  it('writes a line to the error log file', () => {
-    const appendSpy = jest.spyOn(fs, 'appendFileSync').mockImplementation(() => {});
-    logError('SKU123', 'Amazon', 'timeout');
-    expect(appendSpy).toHaveBeenCalledTimes(1);
-    const written = appendSpy.mock.calls[0][1] as string;
-    expect(written).toContain('SKU123');
-    expect(written).toContain('Amazon');
-    expect(written).toContain('timeout');
-    appendSpy.mockRestore();
+  it('handles empty task list', async () => {
+    const results = await runConcurrent([], 2);
+    expect(results).toHaveLength(0);
   });
 });

@@ -21,12 +21,15 @@ interface SKUEntry {
 }
 
 // ─── Extraction helpers (page is already loaded by Crawlee) ──────────────────
+// These functions only read the DOM — they do NOT call page.goto().
+// Navigation is handled by Crawlee before requestHandler fires.
 
 async function extractAmazon(page: Page, sku: string): Promise<ProductData> {
   const title = await page
     .$eval('#productTitle', el => el.textContent?.trim() ?? '')
     .catch(() => 'N/A');
 
+  // Multiple selector fallbacks because Amazon A/B tests its price layout frequently
   const price = await page.evaluate((): string => {
     const candidates = [
       '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
@@ -65,6 +68,7 @@ async function extractAmazon(page: Page, sku: string): Promise<ProductData> {
 }
 
 async function extractWalmart(page: Page, sku: string): Promise<ProductData> {
+  // Walmart renders the h1 after a JS hydration delay — wait for it before reading
   await page.waitForSelector('h1', { timeout: 10_000 }).catch(() => {});
 
   const title = await page.evaluate((): string => {
@@ -83,6 +87,7 @@ async function extractWalmart(page: Page, sku: string): Promise<ProductData> {
       '[data-automation="buybox-price"]',
     ]) {
       const el = document.querySelector(sel);
+      // Structured data in `content` attr is more reliable than visible text
       const v = el?.getAttribute('content') ?? el?.textContent?.trim();
       if (v) return v;
     }
@@ -120,8 +125,10 @@ async function extractWalmart(page: Page, sku: string): Promise<ProductData> {
 async function main(): Promise<void> {
   const { skus }: { skus: SKUEntry[] } = JSON.parse(fs.readFileSync(SKUS_PATH, 'utf-8'));
 
-  // Drop the request queue so every run re-scrapes all SKUs from scratch
-  // Sessions (cookies) are preserved separately via purgeOnStart: false
+  // Drop the request queue so every run re-scrapes all SKUs from scratch.
+  // Sessions (cookies + fingerprints) are preserved separately because
+  // CRAWLEE_PURGE_ON_START=false is set in .env — that env var must live in .env,
+  // not in code, because Crawlee reads it at import time before main() runs.
   await (await RequestQueue.open()).drop();
 
   const results: ProductData[] = [];
@@ -137,7 +144,7 @@ async function main(): Promise<void> {
     requestHandlerTimeoutSecs: 90,
 
     // Crawlee injects realistic browser fingerprints (UA, screen size, WebGL,
-    // canvas, plugins, etc.) per session — replaces playwright-extra stealth + user-agents
+    // canvas, plugins, etc.) per session — replaces playwright-extra stealth
     browserPoolOptions: {
       useFingerprints: true,
       fingerprintOptions: {
@@ -149,12 +156,15 @@ async function main(): Promise<void> {
       },
     },
 
+    // Session pool keeps cookies between retries so solved challenges persist
     useSessionPool: true,
     persistCookiesPerSession: true,
 
     launchContext: {
       launchOptions: {
         headless: HEADLESS,
+        // SLOW_MO adds a delay between every Playwright action — useful for
+        // making bot-detection timing look more human during debugging
         slowMo: SLOW_MO || undefined,
         args: [
           '--no-sandbox',
@@ -166,6 +176,7 @@ async function main(): Promise<void> {
 
     proxyConfiguration,
 
+    // Random jitter on top of SLEEP_BASE_MS avoids deterministic timing signatures
     postNavigationHooks: [
       async ({ page }) => {
         await page.waitForTimeout(SLEEP_BASE_MS + Math.random() * 1000);
@@ -184,6 +195,7 @@ async function main(): Promise<void> {
 
       if (source === 'Amazon') {
         if (/robot check|Enter the characters you see/i.test(html)) {
+          // Retire the session so the next retry gets a fresh fingerprint + new proxy IP
           session?.retire();
           throw new Error('CAPTCHA detected');
         }
@@ -192,11 +204,13 @@ async function main(): Promise<void> {
       } else {
         if (/Robot or human\?|Access Denied/i.test(html)) {
           if (HEADLESS) {
-            // In headless mode there's no way to solve manually — rotate session
+            // Headless mode can't solve the press-and-hold physically — rotate session
             session?.retire();
             throw new Error('Anti-bot challenge detected');
           }
-          // In visible mode — prompt user to solve the press-and-hold in the browser
+          // Visible mode: let the user physically press-and-hold in the open browser window.
+          // The challenge is Akamai's bot manager and cannot be automated — it measures
+          // physical pressure timing that synthetic events can't replicate accurately.
           log.warning(`[Challenge] ${source} | ${sku} | Solve the "press and hold" in the browser window. Waiting up to 2 minutes...`);
           try {
             await page.waitForFunction(

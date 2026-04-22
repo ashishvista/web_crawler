@@ -5,6 +5,8 @@ const PROXY_URL = process.env.PROXY_URL;
 const TIMEOUT   = 20_000;
 const IP_CHECK  = 'https://api.ipify.org?format=json';
 
+// Chromium doesn't reliably parse credentials embedded in the proxy URL string,
+// so we split them into separate fields that the launch options accept explicitly.
 function parseProxyUrl(raw: string) {
   const url = new URL(raw);
   return {
@@ -56,6 +58,10 @@ async function main() {
     proxyIP = await getIP(PROXY_URL);
   } catch (err) {
     console.error('Proxy failed:', (err as Error).message);
+    // Most common causes when the proxy worked in curl but fails here:
+    //   1. Webshare IP allowlist — add your real IP at webshare.io → Proxy → IP Allowlist
+    //   2. Wrong port — Webshare needs port 3128 for HTTPS CONNECT (port 80 only handles HTTP)
+    //   3. Stale credentials — verify username/password on the webshare.io dashboard
     console.error('\nThings to check:');
     console.error('  1. IP allowlist — add', realIP, 'at webshare.io → Proxy → IP Allowlist');
     console.error('  2. Credentials — verify username/password on webshare.io dashboard');
