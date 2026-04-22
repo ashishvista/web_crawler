@@ -171,6 +171,10 @@ async function main(): Promise<void> {
 
     launchContext: {
       launchOptions: {
+        // Use system-installed Google Chrome instead of Playwright's bundled Chromium.
+        // Chrome has a different JA3/TLS and HTTP2 fingerprint that is far more common
+        // in Akamai's traffic data, making it less suspicious than Chromium's fingerprint.
+        channel: 'chrome',
         headless: HEADLESS,
         // SLOW_MO adds a delay between every Playwright action — useful for
         // making bot-detection timing look more human during debugging

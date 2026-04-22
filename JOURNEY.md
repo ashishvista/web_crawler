@@ -48,6 +48,8 @@ A chronological record of every approach tried, what it was meant to solve, and 
 | 17 | `page.waitForFunction()` — wait for challenge to clear | Manual press-and-hold in visible mode | Works — user solves the challenge in the open browser window; scraper continues automatically |
 | 18 | `HEADLESS=false` + manual press-and-hold | Unblockable Akamai challenge | Most reliable current approach; Akamai validates physical press timing that automation can't replicate |
 | 19 | Static residential proxies (higher reputation) | Rotating IPs flagged by Akamai | Akamai still shows challenge — IP reputation alone isn't the deciding factor; JS sensor data and behavioral signals matter more |
+| 20 | Switched to US-based static residential proxies | Non-US IPs (Germany, UK) scoring as higher risk for a US retailer | Same Akamai press-and-hold challenge — geolocation was not the root cause; Webshare IP ranges are flagged in Akamai's threat database regardless of country |
+| 21 | `channel: 'chrome'` — real Google Chrome instead of Playwright's Chromium | Chromium's JA3 and HTTP/2 fingerprints are known to Akamai | Pending — real Chrome has a far more common TLS fingerprint (billions of legitimate users) vs Chromium's recognisable scraper fingerprint |
 
 ---
 
