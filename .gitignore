@@ -3,5 +3,4 @@ dist/
 product_data.csv
 storage/
 .env
-proxies.json
 
