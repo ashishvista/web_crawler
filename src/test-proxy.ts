@@ -1,15 +1,24 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
 
-const PROXY_URL   = process.env.PROXY_URL;
-const TIMEOUT     = 20_000;
-// Plain HTTP — avoids HTTPS CONNECT tunneling issues with port-80 proxies
-const IP_CHECK = 'http://api.ipify.org?format=json';
+const PROXY_URL = process.env.PROXY_URL;
+const TIMEOUT   = 20_000;
+const IP_CHECK  = 'http://api.ipify.org?format=json';
 
-async function getIP(proxyServer?: string): Promise<string> {
+function parseProxyUrl(raw: string) {
+  const url = new URL(raw);
+  return {
+    server:   `${url.protocol}//${url.hostname}${url.port ? `:${url.port}` : ''}`,
+    username: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+  };
+}
+
+async function getIP(proxyRaw?: string): Promise<string> {
+  const proxy = proxyRaw ? parseProxyUrl(proxyRaw) : undefined;
   const browser = await chromium.launch({
     headless: true,
-    ...(proxyServer ? { proxy: { server: proxyServer } } : {}),
+    ...(proxy ? { proxy } : {}),
   });
   try {
     const page = await browser.newPage();
@@ -18,7 +27,7 @@ async function getIP(proxyServer?: string): Promise<string> {
     try {
       return JSON.parse(body).ip;
     } catch {
-      throw new Error(`Proxy returned unexpected response: "${body.slice(0, 80)}" — add your IP to the Webshare allowlist at webshare.io`);
+      throw new Error(`Unexpected response: "${body.slice(0, 80)}"`);
     }
   } finally {
     await browser.close();
@@ -39,27 +48,23 @@ async function main() {
     return;
   }
 
-  console.log(`Proxy:    ${PROXY_URL}\n`);
+  const { server, username } = parseProxyUrl(PROXY_URL);
+  console.log(`Proxy:    ${server} (user: ${username})\n`);
 
   let proxyIP: string;
   try {
     proxyIP = await getIP(PROXY_URL);
   } catch (err) {
-    console.error('Proxy connection failed:', (err as Error).message);
+    console.error('Proxy failed:', (err as Error).message);
     console.error('\nThings to check:');
-    console.error('  1. Port — try 8080 instead of 80 (or vice versa) in PROXY_URL');
+    console.error('  1. IP allowlist — add', realIP, 'at webshare.io → Proxy → IP Allowlist');
     console.error('  2. Credentials — verify username/password on webshare.io dashboard');
-    console.error('  3. Allowlist — add your real IP to the proxy allowlist on webshare.io');
+    console.error('  3. Port — confirm correct port in PROXY_URL');
     process.exit(1);
   }
 
   console.log(`Proxy IP: ${proxyIP}`);
-
-  if (realIP !== proxyIP) {
-    console.log('\nProxy is working.');
-  } else {
-    console.log('\nIPs match — proxy is not routing traffic. Check your PROXY_URL.');
-  }
+  console.log(realIP !== proxyIP ? '\nProxy is working.' : '\nIPs match — proxy not routing traffic.');
 }
 
 main();
