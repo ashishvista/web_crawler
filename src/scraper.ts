@@ -1,8 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import 'dotenv/config';
 import {chromium, Browser,BrowserContext, Page} from 'playwright';
 import {ProductData, logError, retry, sleep, writeToCSV, runConcurrent} from './utils';
 
+const HEADLESS      = process.env.HEADLESS !== 'false';
+const CONCURRENCY   = parseInt(process.env.CONCURRENCY   ?? '2', 10);
+const PAGE_TIMEOUT  = parseInt(process.env.PAGE_TIMEOUT  ?? '30000', 10);
+const SLEEP_BASE_MS = parseInt(process.env.SLEEP_BASE_MS ?? '1500', 10);
+const RETRY_COUNT   = parseInt(process.env.RETRY_COUNT   ?? '3', 10);
+const RETRY_DELAY   = parseInt(process.env.RETRY_DELAY_MS ?? '3000', 10);
+const SKUS_PATH     = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
 
 interface SKUEntry {
   Type: 'Amazon' | 'Walmart';
@@ -39,9 +47,9 @@ async function stealthContext(browser: Browser): Promise<BrowserContext> {
 async function scrapeAmazon(page: Page, sku: string): Promise<ProductData> {
   await page.goto(`https://www.amazon.com/dp/${sku}`, {
     waitUntil: 'domcontentloaded',
-    timeout: 30_000,
+    timeout: PAGE_TIMEOUT,
   });
-  await sleep(1500 + Math.random() * 1000);
+  await sleep(SLEEP_BASE_MS + Math.random() * 1000);
 
   const html = await page.content();
   if (/robot check|Enter the characters you see/i.test(html))
@@ -94,9 +102,9 @@ async function scrapeAmazon(page: Page, sku: string): Promise<ProductData> {
 async function scrapeWalmart(page: Page, sku: string): Promise<ProductData> {
   await page.goto(`https://www.walmart.com/ip/${sku}`, {
     waitUntil: 'domcontentloaded',
-    timeout: 30_000,
+    timeout: PAGE_TIMEOUT,
   });
-  await sleep(1500 + Math.random() * 1000);
+  await sleep(SLEEP_BASE_MS + Math.random() * 1000);
 
   const html = await page.content();
   if (/Robot or human\?|Access Denied/i.test(html))
@@ -165,8 +173,8 @@ async function processSKU(browser: Browser, entry: SKUEntry): Promise<ProductDat
       () => entry.Type === 'Amazon'
         ? scrapeAmazon(page, entry.SKU)
         : scrapeWalmart(page, entry.SKU),
-      3,
-      3000,
+      RETRY_COUNT,
+      RETRY_DELAY,
     );
     console.log(`[OK] ${entry.Type} | ${entry.SKU} | ${data.title.slice(0, 60)}`);
     return data;
@@ -181,11 +189,10 @@ async function processSKU(browser: Browser, entry: SKUEntry): Promise<ProductDat
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const skusPath = path.resolve(process.cwd(), 'skus.json');
-  const { skus }: { skus: SKUEntry[] } = JSON.parse(fs.readFileSync(skusPath, 'utf-8'));
+  const { skus }: { skus: SKUEntry[] } = JSON.parse(fs.readFileSync(SKUS_PATH, 'utf-8'));
 
   const browser = await chromium.launch({
-    headless: true,
+    headless: HEADLESS,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -196,7 +203,7 @@ async function main(): Promise<void> {
 
   try {
     const tasks = skus.map(entry => () => processSKU(browser, entry));
-    const settled = await runConcurrent(tasks, 2); // 2 concurrent browsers
+    const settled = await runConcurrent(tasks, CONCURRENCY);
 
     const successful = settled
       .filter((r): r is PromiseFulfilledResult<ProductData> =>

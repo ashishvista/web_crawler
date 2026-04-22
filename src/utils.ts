@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import 'dotenv/config';
 import { createObjectCsvWriter } from 'csv-writer';
 
 export interface ProductData {
@@ -12,8 +13,8 @@ export interface ProductData {
 }
 
 
-const ERROR_LOG = path.resolve(process.cwd(), 'errors.log');
-const CSV_PATH  = path.resolve(process.cwd(), 'product_data.csv');
+const ERROR_LOG = path.resolve(process.cwd(), process.env.ERROR_LOG ?? 'errors.log');
+const CSV_PATH  = path.resolve(process.cwd(), process.env.CSV_PATH  ?? 'product_data.csv');
 
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
