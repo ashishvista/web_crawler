@@ -191,8 +191,25 @@ async function main(): Promise<void> {
 
     // Set Referer to Google so the request looks like it came from a search result
     preNavigationHooks: [
-      async (_context, gotoOptions) => {
+      async ({ page, request }, gotoOptions) => {
         gotoOptions.referer = 'https://www.google.com/';
+
+        // For Walmart: visit the homepage first if this session has no Walmart cookies yet.
+        // This mimics a real user landing on walmart.com before browsing to a product,
+        // giving Akamai's JS sensor time to score the session before the product page loads.
+        const { source } = request.userData as { source: string };
+        if (source === 'Walmart') {
+          const cookies = await page.context().cookies('https://www.walmart.com');
+          const hasWalmartSession = cookies.some(c => c.name === 'vtc' || c.name === 'abqme');
+          if (!hasWalmartSession) {
+            await page.goto('https://www.walmart.com', {
+              waitUntil: 'domcontentloaded',
+              timeout: PAGE_TIMEOUT,
+            });
+            // Brief pause so the JS sensor can run on the homepage before we navigate away
+            await page.waitForTimeout(2000 + Math.random() * 1000);
+          }
+        }
       },
     ],
 

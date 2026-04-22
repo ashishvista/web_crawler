@@ -137,6 +137,7 @@ A full record of every approach attempted and what happened.
 | 19 | Static residential proxies (higher reputation) | Rotating IPs flagged by Akamai | Akamai still shows challenge — IP reputation alone isn't the deciding factor; JS sensor data and behavioral signals matter more |
 | 20 | Switched to US-based static residential proxies | Non-US IPs (Germany, UK) scoring as higher risk for a US retailer | Same Akamai press-and-hold challenge — geolocation was not the root cause; Webshare IP ranges are flagged in Akamai's threat database regardless of country |
 | 21 | `channel: 'chrome'` via `BROWSER_CHANNEL=chrome` env var — real Google Chrome instead of Playwright's Chromium | Chromium's JA3 and HTTP/2 fingerprints are known to Akamai | Pending — real Chrome has a far more common TLS fingerprint (billions of legitimate users) vs Chromium's recognisable scraper fingerprint |
+| 22 | Visit `walmart.com` homepage before product URL — in `preNavigationHooks`, if session has no Walmart cookies (`vtc`/`abqme`) navigate to homepage first with a 2–3s pause, then Crawlee proceeds to the product URL | Direct deep-link to product page is a strong bot signal; Akamai's JS sensor has no prior session data to score | Pending — gives the JS sensor time to run on the homepage and build a trusted session score before the product page is requested |
 
 ### Infrastructure & Config
 
