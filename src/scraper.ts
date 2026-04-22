@@ -11,6 +11,7 @@ const PAGE_TIMEOUT  = parseInt(process.env.PAGE_TIMEOUT  ?? '30000', 10);
 const SLEEP_BASE_MS = parseInt(process.env.SLEEP_BASE_MS ?? '1500', 10);
 const RETRY_COUNT   = parseInt(process.env.RETRY_COUNT   ?? '3', 10);
 const SLOW_MO       = parseInt(process.env.SLOW_MO       ?? '0', 10);
+const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true';
 const PROXY_URL     = process.env.PROXY_URL;
 const SKUS_PATH     = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
 
@@ -121,7 +122,7 @@ async function main(): Promise<void> {
 
   const results: ProductData[] = [];
 
-  const proxyConfiguration = PROXY_URL
+  const proxyConfiguration = PROXY_ENABLED && PROXY_URL
     ? new ProxyConfiguration({ proxyUrls: [PROXY_URL] })
     : undefined;
 
@@ -167,18 +168,22 @@ async function main(): Promise<void> {
       },
     ],
 
-    async requestHandler({ request, page, log }) {
+    async requestHandler({ request, page, log, session }) {
       const { sku, source } = request.userData as { sku: string; source: 'Amazon' | 'Walmart' };
       const html = await page.content();
 
       if (source === 'Amazon') {
-        if (/robot check|Enter the characters you see/i.test(html))
+        if (/robot check|Enter the characters you see/i.test(html)) {
+          session?.retire();
           throw new Error('CAPTCHA detected');
+        }
         if (/Looking for something\?|Page Not Found/i.test(html))
           throw new Error('Product not found');
       } else {
-        if (/Robot or human\?|Access Denied/i.test(html))
+        if (/Robot or human\?|Access Denied/i.test(html)) {
+          session?.retire();
           throw new Error('Anti-bot challenge detected');
+        }
         if (/couldn't find|page not found/i.test(html))
           throw new Error('Product not found');
       }

@@ -5,6 +5,7 @@
     "build": "tsc",
     "start": "node dist/scraper.js",
     "dev": "ts-node src/scraper.ts",
+    "test:proxy": "ts-node src/test-proxy.ts",
     "postinstall": "playwright install chromium",
     "test": "jest"
   },
