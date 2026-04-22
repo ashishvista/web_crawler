@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import 'dotenv/config';
-import { PlaywrightCrawler, ProxyConfiguration } from 'crawlee';
+import { PlaywrightCrawler, ProxyConfiguration, RequestQueue } from 'crawlee';
 import { Page } from 'playwright';
 import { ProductData, logError, writeToCSV } from './utils';
 
@@ -119,6 +119,10 @@ async function extractWalmart(page: Page, sku: string): Promise<ProductData> {
 
 async function main(): Promise<void> {
   const { skus }: { skus: SKUEntry[] } = JSON.parse(fs.readFileSync(SKUS_PATH, 'utf-8'));
+
+  // Drop the request queue so every run re-scrapes all SKUs from scratch
+  // Sessions (cookies) are preserved separately via purgeOnStart: false
+  await (await RequestQueue.open()).drop();
 
   const results: ProductData[] = [];
 
