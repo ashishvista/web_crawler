@@ -60,6 +60,7 @@ A chronological record of every approach tried, what it was meant to solve, and 
 | 22 | `parseProxyUrl()` in `test-proxy.ts` | Chromium doesn't parse credentials embedded in proxy URL reliably | Split into `server` / `username` / `password` fields; Crawlee's `ProxyConfiguration` handles this internally so only needed in the test script |
 | 23 | `proxies.json` (git-ignored) | Store list of static proxy URLs outside code | Clean separation of credentials from code; loaded at runtime |
 | 24 | `postNavigationHooks` random jitter | Fixed sleep timing is a bot signal | `SLEEP_BASE_MS + random * 1000ms` after every page load |
+| 25 | `preNavigationHooks` — `gotoOptions.referer = 'https://www.google.com/'` | Direct deep-link navigation is a strong bot signal; real users arrive via Google | Did not work — Akamai challenge still shown; IP reputation and JS sensor score outweigh the referrer header |
 
 ---
 

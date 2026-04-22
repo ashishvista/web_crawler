@@ -11,9 +11,9 @@ const PAGE_TIMEOUT  = parseInt(process.env.PAGE_TIMEOUT  ?? '30000', 10);
 const SLEEP_BASE_MS = parseInt(process.env.SLEEP_BASE_MS ?? '1500', 10);
 const RETRY_COUNT   = parseInt(process.env.RETRY_COUNT   ?? '3', 10);
 const SLOW_MO       = parseInt(process.env.SLOW_MO       ?? '0', 10);
-const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true';
-const PROXY_URL     = process.env.PROXY_URL;
-const SKUS_PATH     = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
+const PROXY_ENABLED  = process.env.PROXY_ENABLED === 'true';
+const PROXIES_PATH   = path.resolve(process.cwd(), process.env.PROXIES_PATH ?? 'proxies.json');
+const SKUS_PATH      = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
 
 interface SKUEntry {
   Type: 'Amazon' | 'Walmart';
@@ -133,9 +133,11 @@ async function main(): Promise<void> {
 
   const results: ProductData[] = [];
 
-  const proxyConfiguration = PROXY_ENABLED && PROXY_URL
-    ? new ProxyConfiguration({ proxyUrls: [PROXY_URL] })
-    : undefined;
+  let proxyConfiguration: ProxyConfiguration | undefined;
+  if (PROXY_ENABLED) {
+    const proxyUrls = JSON.parse(fs.readFileSync(PROXIES_PATH, 'utf-8')) as string[];
+    proxyConfiguration = new ProxyConfiguration({ proxyUrls });
+  }
 
   const crawler = new PlaywrightCrawler({
     maxConcurrency: CONCURRENCY,
@@ -175,6 +177,13 @@ async function main(): Promise<void> {
     },
 
     proxyConfiguration,
+
+    // Set Referer to Google so the request looks like it came from a search result
+    preNavigationHooks: [
+      async (_context, gotoOptions) => {
+        gotoOptions.referer = 'https://www.google.com/';
+      },
+    ],
 
     // Random jitter on top of SLEEP_BASE_MS avoids deterministic timing signatures
     postNavigationHooks: [
