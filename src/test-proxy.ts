@@ -3,7 +3,7 @@ import { chromium } from 'playwright';
 
 const PROXY_URL = process.env.PROXY_URL;
 const TIMEOUT   = 20_000;
-const IP_CHECK  = 'http://api.ipify.org?format=json';
+const IP_CHECK  = 'https://api.ipify.org?format=json';
 
 function parseProxyUrl(raw: string) {
   const url = new URL(raw);

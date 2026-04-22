@@ -123,7 +123,7 @@ async function main(): Promise<void> {
   const results: ProductData[] = [];
 
   const proxyConfiguration = PROXY_ENABLED && PROXY_URL
-    ? new ProxyConfiguration({ proxyUrls: [PROXY_URL] })  // Crawlee parses credentials internally
+    ? new ProxyConfiguration({ proxyUrls: [PROXY_URL] })
     : undefined;
 
   const crawler = new PlaywrightCrawler({
