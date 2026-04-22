@@ -194,19 +194,28 @@ async function main(): Promise<void> {
       async ({ page, request }, gotoOptions) => {
         gotoOptions.referer = 'https://www.google.com/';
 
-        // For Walmart: visit the homepage first if this session has no Walmart cookies yet.
-        // This mimics a real user landing on walmart.com before browsing to a product,
-        // giving Akamai's JS sensor time to score the session before the product page loads.
+        // Visit the retailer homepage first if this session has no cookies for that domain yet.
+        // Mimics a real user landing on the site before browsing to a product, giving any
+        // JS-based bot scoring time to build a trusted session before the product page loads.
         const { source } = request.userData as { source: string };
         if (source === 'Walmart') {
           const cookies = await page.context().cookies('https://www.walmart.com');
-          const hasWalmartSession = cookies.some(c => c.name === 'vtc' || c.name === 'abqme');
-          if (!hasWalmartSession) {
+          const hasSession = cookies.some(c => c.name === 'vtc' || c.name === 'abqme');
+          if (!hasSession) {
             await page.goto('https://www.walmart.com', {
               waitUntil: 'domcontentloaded',
               timeout: PAGE_TIMEOUT,
             });
-            // Brief pause so the JS sensor can run on the homepage before we navigate away
+            await page.waitForTimeout(2000 + Math.random() * 1000);
+          }
+        } else if (source === 'Amazon') {
+          const cookies = await page.context().cookies('https://www.amazon.com');
+          const hasSession = cookies.some(c => c.name === 'session-id' || c.name === 'ubid-main');
+          if (!hasSession) {
+            await page.goto('https://www.amazon.com', {
+              waitUntil: 'domcontentloaded',
+              timeout: PAGE_TIMEOUT,
+            });
             await page.waitForTimeout(2000 + Math.random() * 1000);
           }
         }
