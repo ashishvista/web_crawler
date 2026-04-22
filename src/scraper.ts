@@ -298,7 +298,9 @@ async function main(): Promise<void> {
   if (failed > 0) console.log(`${failed} SKU(s) failed — see errors.log`);
 }
 
-main().catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch(err => {
+    console.error('Fatal:', err);
+    process.exit(1);
+  });
