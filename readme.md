@@ -9,12 +9,6 @@ npm install
 npm run dev
 ```
 
-## Setup
-
-```bash
-npm install        # installs dependencies and Chrome via postinstall
-```
-
 ## Running
 
 ```bash
