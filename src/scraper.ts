@@ -134,6 +134,16 @@ async function main(): Promise<void> {
 
   const results: ProductData[] = [];
 
+  // Serialises CSV writes so concurrent requestHandlers don't interleave file output.
+  // Each write is chained onto the previous one; errors propagate to the caller
+  // without breaking the queue for subsequent writes.
+  let csvQueue: Promise<void> = Promise.resolve();
+  function enqueueWrite(data: ProductData): Promise<void> {
+    const write = csvQueue.then(() => writeToCSV([data]));
+    csvQueue = write.catch(() => {});
+    return write;
+  }
+
   let proxyConfiguration: ProxyConfiguration | undefined;
   if (PROXY_ENABLED) {
     const proxyUrls = JSON.parse(fs.readFileSync(PROXIES_PATH, 'utf-8')) as string[];
@@ -279,6 +289,7 @@ async function main(): Promise<void> {
         ? await extractAmazon(page, sku)
         : await extractWalmart(page, sku);
 
+      await enqueueWrite(data);
       results.push(data);
       log.info(`[OK] ${source} | ${sku} | ${data.title.slice(0, 60)}`);
     },
@@ -299,7 +310,6 @@ async function main(): Promise<void> {
   await crawler.run(requests);
 
   if (results.length > 0) {
-    await writeToCSV(results);
     console.log(`\nSaved ${results.length}/${skus.length} records → ${process.env.CSV_PATH ?? 'product_data.csv'}`);
   }
 
