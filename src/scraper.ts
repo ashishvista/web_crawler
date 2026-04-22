@@ -11,6 +11,7 @@ const PAGE_TIMEOUT  = parseInt(process.env.PAGE_TIMEOUT  ?? '30000', 10);
 const SLEEP_BASE_MS = parseInt(process.env.SLEEP_BASE_MS ?? '1500', 10);
 const RETRY_COUNT   = parseInt(process.env.RETRY_COUNT   ?? '3', 10);
 const SLOW_MO       = parseInt(process.env.SLOW_MO       ?? '0', 10);
+const BROWSER_CHANNEL = process.env.BROWSER_CHANNEL || undefined;
 const PROXY_ENABLED  = process.env.PROXY_ENABLED === 'true';
 const PROXIES_PATH   = path.resolve(process.cwd(), process.env.PROXIES_PATH ?? 'proxies.json');
 const SKUS_PATH      = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
@@ -171,10 +172,9 @@ async function main(): Promise<void> {
 
     launchContext: {
       launchOptions: {
-        // Use system-installed Google Chrome instead of Playwright's bundled Chromium.
-        // Chrome has a different JA3/TLS and HTTP2 fingerprint that is far more common
-        // in Akamai's traffic data, making it less suspicious than Chromium's fingerprint.
-        channel: 'chrome',
+        // "chrome" uses system Google Chrome (better TLS/HTTP2 fingerprint with Akamai).
+        // Leave BROWSER_CHANNEL empty in .env to fall back to bundled Chromium.
+        channel: BROWSER_CHANNEL as 'chrome' | undefined,
         headless: HEADLESS,
         // SLOW_MO adds a delay between every Playwright action — useful for
         // making bot-detection timing look more human during debugging
