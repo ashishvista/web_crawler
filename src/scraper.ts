@@ -176,7 +176,7 @@ async function main(): Promise<void> {
       } else {
         log.info(`[Proxy] ${source} | ${sku} | no proxy`);
       }
-      const html = await page.content();
+      let html = await page.content();
 
       if (source === 'Amazon') {
         if (/robot check|Enter the characters you see/i.test(html)) {
@@ -187,8 +187,25 @@ async function main(): Promise<void> {
           throw new Error('Product not found');
       } else {
         if (/Robot or human\?|Access Denied/i.test(html)) {
-          session?.retire();
-          throw new Error('Anti-bot challenge detected');
+          if (HEADLESS) {
+            // In headless mode there's no way to solve manually — rotate session
+            session?.retire();
+            throw new Error('Anti-bot challenge detected');
+          }
+          // In visible mode — prompt user to solve the press-and-hold in the browser
+          log.warning(`[Challenge] ${source} | ${sku} | Solve the "press and hold" in the browser window. Waiting up to 2 minutes...`);
+          try {
+            await page.waitForFunction(
+              () => !/Robot or human\?|Access Denied/i.test(document.body.innerText),
+              { timeout: 120_000 },
+            );
+            await page.waitForLoadState('domcontentloaded', { timeout: PAGE_TIMEOUT });
+            html = await page.content();
+            log.info(`[Challenge] ${source} | ${sku} | Solved! Continuing extraction...`);
+          } catch {
+            session?.retire();
+            throw new Error('Anti-bot challenge not solved within 2 minutes');
+          }
         }
         if (/couldn't find|page not found/i.test(html))
           throw new Error('Product not found');
