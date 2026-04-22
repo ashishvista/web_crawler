@@ -1,62 +1,27 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import 'dotenv/config';
-import {chromium, Browser,BrowserContext, Page} from 'playwright';
-import {ProductData, logError, retry, sleep, writeToCSV, runConcurrent} from './utils';
+import { PlaywrightCrawler, ProxyConfiguration } from 'crawlee';
+import { Page } from 'playwright';
+import { ProductData, logError, writeToCSV } from './utils';
 
 const HEADLESS      = process.env.HEADLESS !== 'false';
 const CONCURRENCY   = parseInt(process.env.CONCURRENCY   ?? '2', 10);
 const PAGE_TIMEOUT  = parseInt(process.env.PAGE_TIMEOUT  ?? '30000', 10);
 const SLEEP_BASE_MS = parseInt(process.env.SLEEP_BASE_MS ?? '1500', 10);
 const RETRY_COUNT   = parseInt(process.env.RETRY_COUNT   ?? '3', 10);
-const RETRY_DELAY   = parseInt(process.env.RETRY_DELAY_MS ?? '3000', 10);
+const SLOW_MO       = parseInt(process.env.SLOW_MO       ?? '0', 10);
+const PROXY_URL     = process.env.PROXY_URL;
 const SKUS_PATH     = path.resolve(process.cwd(), process.env.SKUS_PATH ?? 'skus.json');
 
 interface SKUEntry {
   Type: 'Amazon' | 'Walmart';
   SKU: string;
 }
-// Rotate UAs to reduce bot fingerprinting
 
-const USER_AGENTS = [
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-];
+// ─── Extraction helpers (page is already loaded by Crawlee) ──────────────────
 
-function pickUA(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-}
-
-async function stealthContext(browser: Browser): Promise<BrowserContext> {
-  const ctx = await browser.newContext({
-    userAgent: pickUA(),
-    viewport: { width: 1280, height: 800 },
-    locale: 'en-US',
-    timezoneId: 'America/New_York',
-    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
-  });
-
-  // Pass as a string — runs in browser context, not Node.js
-  await ctx.addInitScript(
-    `Object.defineProperty(navigator, 'webdriver', { get: () => undefined });`
-  );
-
-  return ctx;
-}
-// Amazon
-async function scrapeAmazon(page: Page, sku: string): Promise<ProductData> {
-  await page.goto(`https://www.amazon.com/dp/${sku}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: PAGE_TIMEOUT,
-  });
-  await sleep(SLEEP_BASE_MS + Math.random() * 1000);
-
-  const html = await page.content();
-  if (/robot check|Enter the characters you see/i.test(html))
-    throw new Error('CAPTCHA detected');
-  if (/Looking for something\?|Page Not Found/i.test(html))
-    throw new Error('Product not found');
-
+async function extractAmazon(page: Page, sku: string): Promise<ProductData> {
   const title = await page
     .$eval('#productTitle', el => el.textContent?.trim() ?? '')
     .catch(() => 'N/A');
@@ -75,7 +40,8 @@ async function scrapeAmazon(page: Page, sku: string): Promise<ProductData> {
     }
     return 'N/A';
   });
-    const description = await page.evaluate((): string => {
+
+  const description = await page.evaluate((): string => {
     const bullets = Array.from(
       document.querySelectorAll('#feature-bullets .a-list-item')
     )
@@ -97,21 +63,7 @@ async function scrapeAmazon(page: Page, sku: string): Promise<ProductData> {
   return { sku, source: 'Amazon', title, description, price, reviewsAndRating };
 }
 
-// ─── Walmart ─────────────────────────────────────────────────────────────────
-
-async function scrapeWalmart(page: Page, sku: string): Promise<ProductData> {
-  await page.goto(`https://www.walmart.com/ip/${sku}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: PAGE_TIMEOUT,
-  });
-  await sleep(SLEEP_BASE_MS + Math.random() * 1000);
-
-  const html = await page.content();
-  if (/Robot or human\?|Access Denied/i.test(html))
-    throw new Error('Anti-bot challenge detected');
-  if (/couldn't find|page not found/i.test(html))
-    throw new Error('Product not found');
-
+async function extractWalmart(page: Page, sku: string): Promise<ProductData> {
   await page.waitForSelector('h1', { timeout: 10_000 }).catch(() => {});
 
   const title = await page.evaluate((): string => {
@@ -153,7 +105,7 @@ async function scrapeWalmart(page: Page, sku: string): Promise<ProductData> {
     const rating = document.querySelector('.stars-container')?.textContent?.trim()
       ?? document.querySelector('[itemprop="ratingValue"]')?.getAttribute('content')
       ?? '';
-    const count  = document.querySelector('.rating-number')?.textContent?.trim()
+    const count = document.querySelector('.rating-number')?.textContent?.trim()
       ?? document.querySelector('[itemprop="reviewCount"]')?.getAttribute('content')
       ?? '';
     return [rating, count].filter(Boolean).join(' | ') || 'N/A';
@@ -162,65 +114,105 @@ async function scrapeWalmart(page: Page, sku: string): Promise<ProductData> {
   return { sku, source: 'Walmart', title, description, price, reviewsAndRating };
 }
 
-// ─── Per-SKU runner (own browser context + retry) ────────────────────────────
-
-async function processSKU(browser: Browser, entry: SKUEntry): Promise<ProductData | null> {
-  const ctx  = await stealthContext(browser);
-  const page = await ctx.newPage();
-
-  try {
-    const data = await retry(
-      () => entry.Type === 'Amazon'
-        ? scrapeAmazon(page, entry.SKU)
-        : scrapeWalmart(page, entry.SKU),
-      RETRY_COUNT,
-      RETRY_DELAY,
-    );
-    console.log(`[OK] ${entry.Type} | ${entry.SKU} | ${data.title.slice(0, 60)}`);
-    return data;
-  } catch (err) {
-    logError(entry.SKU, entry.Type, (err as Error).message);
-    return null;
-  } finally {
-    await ctx.close();
-  }
-}
-
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const { skus }: { skus: SKUEntry[] } = JSON.parse(fs.readFileSync(SKUS_PATH, 'utf-8'));
 
-  const browser = await chromium.launch({
-    headless: HEADLESS,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-infobars',
+  const results: ProductData[] = [];
+
+  const proxyConfiguration = PROXY_URL
+    ? new ProxyConfiguration({ proxyUrls: [PROXY_URL] })
+    : undefined;
+
+  const crawler = new PlaywrightCrawler({
+    maxConcurrency: CONCURRENCY,
+    maxRequestRetries: RETRY_COUNT,
+    navigationTimeoutSecs: Math.floor(PAGE_TIMEOUT / 1000),
+    requestHandlerTimeoutSecs: 90,
+
+    // Crawlee injects realistic browser fingerprints (UA, screen size, WebGL,
+    // canvas, plugins, etc.) per session — replaces playwright-extra stealth + user-agents
+    browserPoolOptions: {
+      useFingerprints: true,
+      fingerprintOptions: {
+        fingerprintGeneratorOptions: {
+          browsers: ['chrome'],
+          devices: ['desktop'],
+          operatingSystems: ['windows', 'macos'],
+        },
+      },
+    },
+
+    useSessionPool: true,
+    persistCookiesPerSession: true,
+
+    launchContext: {
+      launchOptions: {
+        headless: HEADLESS,
+        slowMo: SLOW_MO || undefined,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-blink-features=AutomationControlled',
+        ],
+      },
+    },
+
+    proxyConfiguration,
+
+    postNavigationHooks: [
+      async ({ page }) => {
+        await page.waitForTimeout(SLEEP_BASE_MS + Math.random() * 1000);
+      },
     ],
+
+    async requestHandler({ request, page, log }) {
+      const { sku, source } = request.userData as { sku: string; source: 'Amazon' | 'Walmart' };
+      const html = await page.content();
+
+      if (source === 'Amazon') {
+        if (/robot check|Enter the characters you see/i.test(html))
+          throw new Error('CAPTCHA detected');
+        if (/Looking for something\?|Page Not Found/i.test(html))
+          throw new Error('Product not found');
+      } else {
+        if (/Robot or human\?|Access Denied/i.test(html))
+          throw new Error('Anti-bot challenge detected');
+        if (/couldn't find|page not found/i.test(html))
+          throw new Error('Product not found');
+      }
+
+      const data = source === 'Amazon'
+        ? await extractAmazon(page, sku)
+        : await extractWalmart(page, sku);
+
+      results.push(data);
+      log.info(`[OK] ${source} | ${sku} | ${data.title.slice(0, 60)}`);
+    },
+
+    failedRequestHandler({ request }, error) {
+      const { sku, source } = request.userData as { sku: string; source: string };
+      logError(sku, source, error.message);
+    },
   });
 
-  try {
-    const tasks = skus.map(entry => () => processSKU(browser, entry));
-    const settled = await runConcurrent(tasks, CONCURRENCY);
+  const requests = skus.map(entry => ({
+    url: entry.Type === 'Amazon'
+      ? `https://www.amazon.com/dp/${entry.SKU}`
+      : `https://www.walmart.com/ip/${entry.SKU}`,
+    userData: { sku: entry.SKU, source: entry.Type },
+  }));
 
-    const successful = settled
-      .filter((r): r is PromiseFulfilledResult<ProductData> =>
-        r.status === 'fulfilled' && r.value !== null)
-      .map(r => r.value!);
+  await crawler.run(requests);
 
-    if (successful.length > 0) {
-      await writeToCSV(successful);
-      console.log(`\nSaved ${successful.length}/${skus.length} records → product_data.csv`);
-    }
-
-    const failed = skus.length - successful.length;
-    if (failed > 0) console.log(`${failed} SKU(s) failed — see errors.log`);
-
-  } finally {
-    await browser.close();
+  if (results.length > 0) {
+    await writeToCSV(results);
+    console.log(`\nSaved ${results.length}/${skus.length} records → ${process.env.CSV_PATH ?? 'product_data.csv'}`);
   }
+
+  const failed = skus.length - results.length;
+  if (failed > 0) console.log(`${failed} SKU(s) failed — see errors.log`);
 }
 
 main().catch(err => {
