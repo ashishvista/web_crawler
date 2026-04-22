@@ -168,8 +168,14 @@ async function main(): Promise<void> {
       },
     ],
 
-    async requestHandler({ request, page, log, session }) {
+    async requestHandler({ request, page, log, session, proxyInfo }) {
       const { sku, source } = request.userData as { sku: string; source: 'Amazon' | 'Walmart' };
+
+      if (proxyInfo) {
+        log.info(`[Proxy] ${source} | ${sku} | ${proxyInfo.url}`);
+      } else {
+        log.info(`[Proxy] ${source} | ${sku} | no proxy`);
+      }
       const html = await page.content();
 
       if (source === 'Amazon') {
